@@ -35,7 +35,7 @@ Always use `AskUserQuestion` for user input. Follow these principles:
 3. Read the code. Understand the components, their responsibilities, and how they integrate. Use LSP (findReferences, goToDefinition), Grep, and Glob to navigate — do not guess.
 4. Use `AskUserQuestion` to ask about anything you cannot determine from the code or requirements alone. Ask each question separately — one at a time.
 
-   **Domain classification**: Header: "Domain". Ask which areas are core (competitive advantage, high volatility), supporting, or generic subdomains. Present the major components you identified as options.
+   **Domain classification**: Header: "Domain". First, ask the user (free text) which business areas/components are core (competitive advantage, high volatility), supporting, or generic subdomains. Do not list all discovered components as options. If they mention many areas, either group them and ask follow-up `AskUserQuestion` prompts that classify 2–4 areas at a time, or focus on the top 2–4 most important areas they highlight.
 
    **Team structure**: Header: "Teams". Options: "Same team — Single team owns everything", "Multiple teams — Different teams own different parts", "Mixed / not sure".
 
