@@ -128,10 +128,10 @@ _This analysis was performed using the [Balanced Coupling](https://coupling.dev)
 
 ## Output
 
-Write both files to `docs/reviews/`:
+Write both files to `docs/modularity-review/!`date +%Y-%m-%d`/`:
 
-1. `docs/reviews/modularity-review.md` — the Markdown version
-2. `docs/reviews/modularity-review.html` — the HTML version
+1. `docs/modularity-review/!`date +%Y-%m-%d`/modularity-review.md` — the Markdown version
+2. `docs/modularity-review/!`date +%Y-%m-%d`/modularity-review.html` — the HTML version
 
 ### HTML generation
 

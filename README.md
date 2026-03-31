@@ -11,6 +11,8 @@ This plugin operates at the architectural level. It includes two skills:
 
 Both skills are grounded in the [Balanced Coupling](https://coupling.dev) model, so every recommendation traces back to a concrete dimension (integration strength, distance, volatility), not gut feel.
 
+> _"One of the most useful Claude Code skills for your vibe-coded projects so far!"_ — Alexei Ledenev ([pumba](https://github.com/alexei-led/pumba), [k8s-mcp-server](https://github.com/alexei-led/k8s-mcp-server), [ccgram](https://github.com/alexei-led/ccgram))
+
 ## Installation
 
 Requires [Claude Code](https://code.claude.com/docs/en/quickstart) v1.0.33 or later.
