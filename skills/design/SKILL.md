@@ -1,5 +1,5 @@
 ---
-name: high-level-design
+name: design
 description: >
   Designs modular high-level architectures from functional requirements and produces design
   documents for each module. Use when designing a new system, creating architecture documentation,
