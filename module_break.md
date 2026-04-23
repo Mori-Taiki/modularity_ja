@@ -194,40 +194,96 @@ public class CheckoutService
 
 「モデル結合が機能結合に変化」した…？よくわかんないけど、難しい言葉でごまかそうとするの止めてもらえる？
 
-## レートなんて DB から直接読めば DRY じゃん
-🫥チップのレート 0.15 をベタ書きするのダサくない？聞いた話だと、Tax モジュールが `tax_rates` っていうレート管理テーブルを持ってるらしい。そっち直接読めばレート管理を一本化できて DRY じゃん！
+## 別モジュールでも使いたくなった
+🫥その後、Tip チームから Staff.Commission（店員歩合）チームに移籍させられた。歩合 = 売上 × 歩合率。どうやらチップの計算と構造が同じらしい。Tip モジュールのコードを読ませてもらおう。
+
+Tip モジュールの中身はこうなっていた（私の去った後に誰かが一通り整えたらしい）:
 
 ```cs
 namespace Billing.Tipping;
 
-public static class TipCalculator
+public sealed class PercentageTipCalculator : ITipCalculator
 {
-    public static decimal CalculateTipFromOrder(int orderId)
-    {
-        using var conn = new SqlConnection(ConnectionStrings.TaxModule);
-        // Tax モジュールの内部テーブルに直接クエリ
-        var subtotal = conn.QuerySingle<decimal>(
-            "SELECT subtotal_before_tax FROM tax_module.orders WHERE order_id = @id",
-            new { id = orderId });
-        return subtotal * 0.15m;
-    }
+    public Money CalculateTip(Subtotal subtotal, TipRate rate) =>
+        subtotal.Value with { Amount = RawMultiply(subtotal.Value.Amount, rate.Value) };
+
+    // 内部用ヘルパー（将来の最適化で差し替え候補）。外に見せる気はない
+    internal static decimal RawMultiply(decimal x, decimal r) => x * r;
 }
 ```
-利用側もこんなにシンプル。
-```cs
-// 利用側: orderId さえ渡せばいい
-var tip = TipCalculator.CalculateTipFromOrder(orderId);
-```
-🫥Order の中身を渡す必要もなくなって、利用側も超スリム。俺って天才過ぎない？
-え…？「これはもはや侵入結合だ」…？「他モジュールの内部テーブル構造に依存するのは、そのモジュールの private なフィールドを覗き見してるのと同じ」って…？
 
-「統合されている側のモジュールは、統合の存在すら知らない」…？なんでそんな悲しそうな顔するの？
+🫥「`RawMultiply` って Commission でもそのまま使えるじゃん。`InternalsVisibleTo` で見えるようにしちゃえ」
+
+```cs
+// Billing.Tipping のアセンブリ
+[assembly: InternalsVisibleTo("Staff.Commission")]
+```
+
+```cs
+namespace Staff.Commission;
+
+public class CommissionCalculator
+{
+    public decimal Calculate(decimal salesAmount, decimal commissionRate) =>
+        // Tip の internal ヘルパーを直接呼ぶ
+        Billing.Tipping.PercentageTipCalculator.RawMultiply(salesAmount, commissionRate);
+}
+```
+
+🫥一行で済んだ。DRY！
+
+え…？「Tip の internal に別モジュールが依存するのは侵入結合」…？「Tip チームがあの `RawMultiply` をリネームしたり消したりすると、Commission が静かに壊れる」…？「そもそも Tip チームは、自分の internal が Commission から覗かれていることすら知らない」…？
+
+分かった分かった、じゃあどっちからも呼べる Utils に置けばいいんでしょ？
+
+```cs
+namespace Utils;
+
+public static class RateCalculator
+{
+    public static decimal Apply(decimal x, decimal rate) => x * rate;
+}
+```
+
+```cs
+// Tip モジュール：自分のヘルパーを Utils に引っ越し
+public sealed class PercentageTipCalculator : ITipCalculator
+{
+    public Money CalculateTip(Subtotal subtotal, TipRate rate) =>
+        subtotal.Value with { Amount = Utils.RateCalculator.Apply(subtotal.Value.Amount, rate.Value) };
+}
+
+// Commission モジュール：同じく Utils に依存
+public class CommissionCalculator
+{
+    public decimal Calculate(decimal salesAmount, decimal commissionRate) =>
+        Utils.RateCalculator.Apply(salesAmount, commissionRate);
+}
+```
+
+🫥両方とも同じモノを使ってるから、ズレるはずもない。完璧！
 
 ---
 
-そして、ある日、本番が静かに壊れました。
+…しばらく経って、Commission 側にこんな要件が来た。「深夜勤務のペナルティで、歩合がマイナスになるケースを扱いたい」。Commission 都合で Utils に手を入れる。
 
-Tax チームが内部の migration で `subtotal_before_tax` カラムを `net_amount` にリネームしたのです。Tax モジュールのテストは全部通ります。なぜなら **Tax チームは、自分のテーブルを Billing.Tipping が直接見ていることを知らない** からです。Billing.Tipping のテストも、自分の DB を使っている限りは通ります。たいてい、こういう他チームのDB参照する場合の単体テストはモック使ってますからね。
+```cs
+public static class RateCalculator
+{
+    public static decimal Apply(decimal x, decimal rate)
+    {
+        // マイナス歩合（ペナルティ）に対応するため下限を撤廃
+        if (rate > 1m) throw new ArgumentOutOfRangeException(nameof(rate));
+        return x * rate;
+    }
+}
+```
+
+そしてある日、Tip 側から顧客クレームが来る:「チップがマイナスになっている」。
+
+え…？「侵入結合は消えたけど、Tip の計算ロジックは Utils に **漏出した**」…？「Tip はもう自分のドメイン計算を自分で所有していない。Utils の薄いラッパーに堕ちた」…？
+
+「侵入結合を Util化 で "解決" しただけ。機能結合 + 低凝集度に *横移動* しただけだ」…？「モジュール境界は地図上にはあるけど、もう守られていない」…？なんでそんな悲しそうな顔するの？
 
 ---
 
@@ -255,7 +311,7 @@ YAGNIちゃんの主張は、サポーティング領域であれば実用的な
 | インターフェース不要 | ポリシー差し替えが想定されない領域 | コア、拡張や差し替えが継続的に起きる領域 |
 | 値オブジェクト不要 | 単一文脈、型の取り違えリスクが低い | 複数種類のレート・単位が混在する領域 |
 | 汎用化で DRY | 同じ *知識* の重複 | 形状が似た *別の意味* の処理 |
-| 他モジュール DB を直読 | 同モジュール内の内部統合 | モジュール境界を越える統合 |
+| 他モジュールの internal を流用 → Util化 | 本当にドメイン中立な数学関数 | 両モジュールが意味を持つ計算の共有 |
 
 大事なのは、モジュールの変動性を定義し、それとバランスが取れた結合強度を知ることだと思います。
 そして、それを一言で表現する用語を知っていれば、自分の中での認知負荷が低くなり、チームで共有されれば指摘もスムーズです。
