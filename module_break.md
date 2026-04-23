@@ -1,7 +1,7 @@
-こんにちは、エンジニアのT.Mです。今日は私の代わりに、私の中のファジーなペルソナ🫥が記事を書いてくれるそうです。
+こんにちは、エンジニアのT.Mです。今日は私の代わりに、私の中のYAGNI🫥なペルソナが記事を書いてくれるそうです。
 
 
-ファジー🫥：「強固なアーキテクチャって、堅苦しいよね？」「なんだか冗長に見えるし、何の意味があって分かれているのか、理解しがたいことばっかり！」「業務では絶対やれないこと、ブログではやっちゃおう！！！」
+YAGNI🫥：「強固なアーキテクチャって、堅苦しいよね？」「なんだか冗長に見えるし、何の意味があって分かれているのか、理解しがたいことばっかり！」「業務では絶対やれないこと、ブログではやっちゃおう！！！」
 
 なんだか、気分が悪くなってきました。しかし、ここは温かい目で見守ることにします。
 
@@ -32,11 +32,37 @@ public sealed record Currency(string Code);
 public sealed record Money(decimal Amount, Currency Currency);
 public sealed record Subtotal(Money Value);
 
+// 米国式: 購入金額に一定の割合を乗算する
 public sealed class PercentageTipCalculator : ITipCalculator
 {
     public Money CalculateTip(Subtotal subtotal, TipRate rate) =>
         subtotal.Value with { Amount = subtotal.Value.Amount * rate.Value };
 }
+
+// 日本式: サービス料として一定率を加算する
+public sealed class JapaneseServiceChargeCalculator : ITipCalculator
+{
+    private static readonly decimal ServiceChargeRate = 0.10m;
+    public Money CalculateTip(Subtotal subtotal, TipRate _) =>
+        subtotal.Value with { Amount = subtotal.Value.Amount * ServiceChargeRate };
+}
+```
+
+そして、このモジュールは以下のように使われます。
+```cs
+// 利用側: ITipCalculator だけを知っていればいい
+public class CheckoutService(ITipCalculator tipCalculator)
+{
+    public Receipt Finalize(Order order)
+    {
+        var tip = tipCalculator.CalculateTip(order.Subtotal, order.TipRate);
+        return new Receipt(order, tip);
+    }
+}
+
+// 店舗のロケールに応じて DI で差し替え
+services.AddScoped<ITipCalculator, PercentageTipCalculator>();          // 米国店舗
+services.AddScoped<ITipCalculator, JapaneseServiceChargeCalculator>();  // 日本店舗
 ```
 
 🫥なんかクラスっぽいのがたくさんあるし、よく見るとインターフェース？とかレコード？とか色々あってややこしい。
@@ -48,6 +74,7 @@ https://zenn.dev/loglass/articles/6b56dac587f02e
 
 ## インターフェース？それ要るの？
 🫥とにもかくにも、インターフェースとかいう奴がよくわからないので消しちまおう。
+ついでに日本式も要らないから米国式だけ残す。日本にチップの文化はないからね。
 ```cs
 namespace Billing.Tipping;
 
@@ -57,14 +84,28 @@ public sealed class TipCalculator
         subtotal.Value with { Amount = subtotal.Value.Amount * rate.Value };
 }
 ```
+🫥利用側はこうなる。ヒュー、慣れててわかりやすいねぇ。
+```cs
+// 利用側: TipCalculator の具象型を直接知る
+public class CheckoutService
+{
+    private readonly TipCalculator _tipCalculator = new();
+
+    public Receipt Finalize(Order order)
+    {
+        var tip = _tipCalculator.CalculateTip(order.Subtotal, order.TipRate);
+        return new Receipt(order, tip);
+    }
+}
+```
 🫥これでヨシ！結局やってること同じだよね？
-え？「チップが常に%計算の米国式とは限らないだろ、日本ではサービス料込みとして計算するんだ」「ポリシーの差し替えが見込まれるからこうしてたのに」って？
-ちょっと何言ってるかよくわからないな…まだそんなコードなかったよ？
+え？「チップが常に%計算の米国式とは限らないだろ」「日本にも高級店にはサービス料がある」って？
+そうだとしても、また**必要になったら**、そのときに 新しいTipCalculator を足せばいいだろ？今の顧客にはいないんだし。
 
 「契約結合がモデル結合に変化」した…？何のことをおっしゃっているのだか？
 
 ## なんでわざわざ値をラップするわけ？
-🫥レコード？とかいうのは、クラスの亜種で、なんか値を使うときに使うヤツらしい？でも、そもそも値ならプリミティブ型でよくない？
+🫥レコード？とかいうのは、クラスの亜種で、なんか値を使うときに使うヤツらしい？でも、そもそも**値**ならプリミティブ型でよくない？
 ```cs
 namespace Billing.Tipping;
 
@@ -74,7 +115,7 @@ public static class TipCalculator
         => subtotal * rate;
 }
 ```
-🫥ほら、これでMoneyとかTipRate とかいちいち宣言しなくて良くなりましたよ？俺って天才…？
+🫥ほら、これでMoneyとかTipRate とかいちいち宣言しなくて良くなりましたよ？俺ってやっぱ天才…？
 え？「レートが0~1の範囲内かどうかのチェックはどこへ行ったんだ」って？そんなの…呼び出すときにチェックしなよ…
 
 分かった分かった、じゃあメソッド内でチェックすればいいんでしょ？
@@ -88,6 +129,19 @@ public static class TipCalculator
         if (rate < 0m || rate > 1m)
             throw new ArgumentOutOfRangeException(nameof(rate));
         return subtotal * rate;
+    }
+}
+```
+🫥そして利用側はこうだね。
+```cs
+// 利用側: decimal の意味と 0~1 の制約を"暗黙的に"知っている必要がある
+public class CheckoutService
+{
+    public Receipt Finalize(Order order)
+    {
+        var tipRate = 0.15m;
+        var tip = TipCalculator.CalculateTip(order.SubtotalAmount, tipRate);
+        return new Receipt(order, tip);
     }
 }
 ```
@@ -123,77 +177,87 @@ TipCalculator.CalculateTipForExcellentService(1000m, 8m);
 🫥いやいや、そんなこと今考えてもしょうがないでしょ？だって今そんな関数は無いんだし。
 
 何…？まだあるの？「チップのレートと税金のレートを取り違えたらどうするんだ」って…？まだそんな要件ないじゃん、それに変数名ちゃんとしてればそんなこと起こらないよ、人間を信じなって。
+```cs
+// 利用側: decimal の意味と 0~1 の制約を"暗黙的に"知っている必要がある
+public class CheckoutService
+{
+    public Receipt Finalize(Order order)
+    {
+        var tipRate = 0.15m;
+        var taxRate = 0.08m;
+        var tip = TipCalculator.CalculateTip(order.SubtotalAmount, taxRate);
+        // ↑ うっかり taxRate を渡しても型的にはまったく同じ。コンパイラは気づかない
+        return new Receipt(order, tip);
+    }
+}
+```
 
 「モデル結合が機能結合に変化」した…？よくわかんないけど、難しい言葉でごまかそうとするの止めてもらえる？
 
-## もっと"汎用的"にしよう
-🫥面白くないことに、その後チップだけじゃなくて、税金も計算しろって言われた。（新たな要件）
-でもチップの計算とほとんど同じ処理なんだよなぁ...
-そうだ、Tipなんて名前があるから誤用だと思われるんだ、もっと"汎用的"にしてやろう。
+## レートなんて DB から直接読めば DRY じゃん
+🫥チップのレート 0.15 をベタ書きするのダサくない？聞いた話だと、Tax モジュールが `tax_rates` っていうレート管理テーブルを持ってるらしい。そっち直接読めばレート管理を一本化できて DRY じゃん！
 
 ```cs
-namespace Utils;
+namespace Billing.Tipping;
 
-public static class Calculator
+public static class TipCalculator
 {
-    public static decimal Calculate(decimal x, decimal rate)
+    public static decimal CalculateTipFromOrder(int orderId)
     {
-        if (rate < 0m || rate > 1m)
-            throw new ArgumentOutOfRangeException(nameof(rate));
-        return x * rate;
+        using var conn = new SqlConnection(ConnectionStrings.TaxModule);
+        // Tax モジュールの内部テーブルに直接クエリ
+        var subtotal = conn.QuerySingle<decimal>(
+            "SELECT subtotal_before_tax FROM tax_module.orders WHERE order_id = @id",
+            new { id = orderId });
+        return subtotal * 0.15m;
     }
 }
 ```
-``` cs
-var tip = Calculator.Calculate(subtotal, 0.15m);   // チップ
-var tax = Calculator.Calculate(subtotal, 0.08m);   // 消費税
-```
-🫥ほら、これってDRY（Don't Repeat Yourself）原則に則っているよね？
-え…？「DRY原則は抽象化の事であって、共通化の事ではない？」何が違うのよ？
-
-「別の意味の処理が密結合するだろ」…？
+利用側もこんなにシンプル。
 ```cs
-// 1. マイナス税の計算をしたいのでレンジを広げた
-namespace Utils;
-
-public static class Calculator
-{
-    public static decimal Calculate(decimal x, decimal rate)
-    {
-        // 還付にも対応するため下限を撤廃
-        if (rate > 1m)
-            throw new ArgumentOutOfRangeException(nameof(rate));
-        return x * rate;
-    }
-}
+// 利用側: orderId さえ渡せばいい
+var tip = TipCalculator.CalculateTipFromOrder(orderId);
 ```
-```cs
-// 2. マイナスのチップが通るようになってしまった
-// 税チームの想定: 還付率を渡す
-Calculator.Calculate(1000m, -0.05m);   // -50円（還付として正しい）
+🫥Order の中身を渡す必要もなくなって、利用側も超スリム。俺って天才過ぎない？
+え…？「これはもはや侵入結合だ」…？「他モジュールの内部テーブル構造に依存するのは、そのモジュールの private なフィールドを覗き見してるのと同じ」って…？
 
-// チップ側でうっかり同じ関数を呼ぶと…
-Calculator.Calculate(subtotal, tipRate);   // tipRate = -0.05m でも素通り
-// → 顧客に「マイナスのチップ」が発生し、支払額が勝手に減る
-```
-🫥いやいや、悲観的すぎるって、心配ごとの9割は実際には起きないらしいよ？
-「もはや侵入結合だ」…？なんでそんな悲しそうな顔するの？
+「統合されている側のモジュールは、統合の存在すら知らない」…？なんでそんな悲しそうな顔するの？
+
+---
+
+そして、ある日、本番が静かに壊れました。
+
+Tax チームが内部の migration で `subtotal_before_tax` カラムを `net_amount` にリネームしたのです。Tax モジュールのテストは全部通ります。なぜなら **Tax チームは、自分のテーブルを Billing.Tipping が直接見ていることを知らない** からです。Billing.Tipping のテストも、自分の DB を使っている限りは通ります。たいてい、こういう他チームのDB参照する場合の単体テストはモック使ってますからね。
 
 ---
 
 ハッ…！私は一体何を、なんだかすごく頭が痛い…
 
 # 何が起こっていたのか
-茶番は差し置いて、ファジー🫥なペルソナの感覚はこうです
+茶番は差し置いて、YAGNI🫥の感覚はこうです。
 - モジュールの契約を柔らかくしたい
 - 早すぎる実装をしたくない
 - とにかく全体を短くしたい
 
 これは一概に否定すべき感覚ではないと思っています。
-実際、インターフェースが過剰になることはありますし、すべての値に対して型(値オブジェクト)を定義すると、非生産的になるフェーズもあると思います。
-流石に、侵入結合については、別々に書いた方がいいことが99%だとは思いますが。
+実際、彼の主張には **特定の条件下では正しいもの** がたくさんあります。問題は、彼女が一貫して「このコードは変わらない」「この要件は増えない」という ***低変動性を暗黙の前提*** としていることです。
 
-大事なのは、どのようなリスクに備えた設計なのか知ることだと思います。
+Vlad Khononov の結合バランスモデルでは、ドメインを以下の3つに分類し、変動性の高さを判断します:
+
+- **コアサブドメイン** — ビジネスの競争優位をもたらす領域。**高変動性**。競争優位性のために継続的に改善される
+- **サポーティングサブドメイン** — 差別化要因ではないが必要なもの（管理画面の CRUD、ETL 等）。**低変動性**
+- **汎用サブドメイン** — 既製品ソリューションがある領域（認証、決済等）。機能は安定、実装は差し替え候補
+
+YAGNIちゃんの主張は、サポーティング領域であれば実用的な判断になり得ます。問題は、彼女が **すべての領域に同じ処方箋を当てる** こと、つまり、コアサブドメインでもサポーティングでも、同じ「シンプル」を適用してしまう点にあります。（彼の「シンプル」の理解が誤っていることは、Rich HickeyのSimple made Easyの講義をご覧いただくとわかりやすいです。）
+
+| YAGNIの主張 | 正しい文脈 | 誤用の文脈 |
+| --- | --- | --- |
+| インターフェース不要 | ポリシー差し替えが想定されない領域 | コア、拡張や差し替えが継続的に起きる領域 |
+| 値オブジェクト不要 | 単一文脈、型の取り違えリスクが低い | 複数種類のレート・単位が混在する領域 |
+| 汎用化で DRY | 同じ *知識* の重複 | 形状が似た *別の意味* の処理 |
+| 他モジュール DB を直読 | 同モジュール内の内部統合 | モジュール境界を越える統合 |
+
+大事なのは、モジュールの変動性を定義し、それとバランスが取れた結合強度を知ることだと思います。
 そして、それを一言で表現する用語を知っていれば、自分の中での認知負荷が低くなり、チームで共有されれば指摘もスムーズです。
 
 すでにお気づきの方もいらっしゃると思いますが、本ブログのモジュール結合についての定義は、Vlad Khononovの『ソフトウェア設計の結合バランス』に基づいています。
@@ -214,9 +278,9 @@ https://amzn.asia/d/02wEkr8p
 
 | 下から読むと | 何が起きているか | 結合の移動 |
 | --- | --- | --- |
-| Utils → Billing.Tipping に戻す | ドメインの境界を引き直す | 侵入 → 機能 |
-| TipRate を復活 | 不変条件を型に押し込める | 機能 → モデル |
-| ITipCalculator を復活 | ポリシー差し替えを契約で吸収 |  モデル → 契約 |
+| 内部 DB 直読をやめ公開 API に戻す | 実装詳細を再カプセル化 | 侵入 → 機能 |
+| `TipRate` / `Money` を復活 | 不変条件を型に押し込める | 機能 → モデル |
+| `ITipCalculator` と複数実装を復活 | ポリシー差し替えを契約で吸収 | モデル → 契約 |
 
 ちなみに、Vlad Khononovのモジュール結合バランスに関する考えは、以下のリポジトリでAIエージェント用のskillsにもなっています。こちらを一読するだけでも大変勉強になるかと思います。本と合わせて非常におすすめです。
 https://github.com/vladikk/modularity
